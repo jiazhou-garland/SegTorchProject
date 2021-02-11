@@ -15,7 +15,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn.modules.loss import _WeightedLoss
 
-from seg.models.networks.utils import LossReduction
+from seg.models.networks.utils.enums import LossReduction
 
 
 class FocalLoss(_WeightedLoss):

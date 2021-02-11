@@ -15,8 +15,8 @@ from typing import Callable, Optional, Union
 import torch
 from torch.nn.modules.loss import _Loss
 
-from seg.models.networks.utils import one_hot
-from seg.models.networks.utils import LossReduction
+from seg.models.networks.utils.utils import one_hot
+from seg.models.networks.utils.enums import LossReduction
 
 
 class TverskyLoss(_Loss):
