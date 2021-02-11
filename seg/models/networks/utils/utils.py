@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -13,11 +13,26 @@ Utilities and types for defining networks, these depend on PyTorch.
 """
 
 import warnings
+from contextlib import contextmanager
 from typing import Any, Callable, Optional, Sequence, cast
 
 import torch
 import torch.nn as nn
-from seg.models.networks.utils.misc import ensure_tuple_size
+
+from monai.utils import ensure_tuple_size
+
+__all__ = [
+    "one_hot",
+    "slice_channels",
+    "predict_segmentation",
+    "normalize_transform",
+    "to_norm_affine",
+    "normal_init",
+    "icnr_init",
+    "pixelshuffle",
+    "eval_mode",
+    "train_mode",
+]
 
 
 def one_hot(labels: torch.Tensor, num_classes: int, dtype: torch.dtype = torch.float, dim: int = 1) -> torch.Tensor:
@@ -30,16 +45,18 @@ def one_hot(labels: torch.Tensor, num_classes: int, dtype: torch.dtype = torch.f
         For every value v = labels[b,1,h,w], the value in the result at [b,v,h,w] will be 1 and all others 0.
         Note that this will include the background label, thus a binary mask should be treated as having 2 classes.
     """
-    assert labels.dim() > 0, "labels should have dim of 1 or more."
+    if labels.dim() <= 0:
+        raise AssertionError("labels should have dim of 1 or more.")
 
     # if `dim` is bigger, add singleton dim at the end
-    if labels.ndimension() < dim + 1:
+    if labels.ndim < dim + 1:
         shape = ensure_tuple_size(labels.shape, dim + 1, 1)
         labels = labels.reshape(*shape)
 
     sh = list(labels.shape)
 
-    assert sh[dim] == 1, "labels should have a channel with length equals to one."
+    if sh[dim] != 1:
+        raise AssertionError("labels should have a channel with length equals to one.")
     sh[dim] = num_classes
 
     o = torch.zeros(size=sh, dtype=dtype, device=labels.device)
@@ -71,11 +88,10 @@ def predict_segmentation(
     """
     if not mutually_exclusive:
         return (cast(torch.Tensor, logits >= threshold)).int()
-    else:
-        if logits.shape[1] == 1:
-            warnings.warn("single channel prediction, `mutually_exclusive=True` ignored, use threshold instead.")
-            return (cast(torch.Tensor, logits >= threshold)).int()
-        return logits.argmax(1, keepdim=True)
+    if logits.shape[1] == 1:
+        warnings.warn("single channel prediction, `mutually_exclusive=True` ignored, use threshold instead.")
+        return (cast(torch.Tensor, logits >= threshold)).int()
+    return logits.argmax(1, keepdim=True)
 
 
 def normalize_transform(
@@ -134,7 +150,7 @@ def to_norm_affine(
         ValueError: When ``src_size`` or ``dst_size`` dimensions differ from ``affine``.
 
     """
-    if not torch.is_tensor(affine):
+    if not isinstance(affine, torch.Tensor):
         raise TypeError(f"affine must be a torch.Tensor but is {type(affine).__name__}.")
     if affine.ndimension() != 3 or affine.shape[1] != affine.shape[2]:
         raise ValueError(f"affine must be Nxdxd, got {tuple(affine.shape)}.")
@@ -144,8 +160,7 @@ def to_norm_affine(
 
     src_xform = normalize_transform(src_size, affine.device, affine.dtype, align_corners)
     dst_xform = normalize_transform(dst_size, affine.device, affine.dtype, align_corners)
-    new_affine = src_xform @ affine @ torch.inverse(dst_xform)
-    return new_affine
+    return src_xform @ affine @ torch.inverse(dst_xform)
 
 
 def normal_init(
@@ -217,8 +232,8 @@ def pixelshuffle(x: torch.Tensor, dimensions: int, scale_factor: int) -> torch.T
 
     if channels % scale_divisor != 0:
         raise ValueError(
-            f"Number of input channels ({channels}) must be evenly \
-                        divisible by scale_factor ** dimensions ({scale_divisor})."
+            f"Number of input channels ({channels}) must be evenly "
+            f"divisible by scale_factor ** dimensions ({factor}**{dim}={scale_divisor})."
         )
 
     org_channels = channels // scale_divisor
@@ -231,3 +246,70 @@ def pixelshuffle(x: torch.Tensor, dimensions: int, scale_factor: int) -> torch.T
     x = x.reshape(batch_size, org_channels, *([factor] * dim + input_size[2:]))
     x = x.permute(permute_indices).reshape(output_size)
     return x
+
+
+@contextmanager
+def eval_mode(*nets: nn.Module):
+    """
+    Set network(s) to eval mode and then return to original state at the end.
+
+    Args:
+        nets: Input network(s)
+
+    Examples
+
+    .. code-block:: python
+
+        t=torch.rand(1,1,16,16)
+        p=torch.nn.Conv2d(1,1,3)
+        print(p.training)  # True
+        with eval_mode(p):
+            print(p.training)  # False
+            print(p(t).sum().backward())  # will correctly raise an exception as gradients are calculated
+    """
+
+    # Get original state of network(s)
+    training = [n for n in nets if n.training]
+
+    try:
+        # set to eval mode
+        with torch.no_grad():
+            yield [n.eval() for n in nets]
+    finally:
+        # Return required networks to training
+        for n in training:
+            n.train()
+
+
+@contextmanager
+def train_mode(*nets: nn.Module):
+    """
+    Set network(s) to train mode and then return to original state at the end.
+
+    Args:
+        nets: Input network(s)
+
+    Examples
+
+    .. code-block:: python
+
+        t=torch.rand(1,1,16,16)
+        p=torch.nn.Conv2d(1,1,3)
+        p.eval()
+        print(p.training)  # False
+        with train_mode(p):
+            print(p.training)  # True
+            print(p(t).sum().backward())  # No exception
+    """
+
+    # Get original state of network(s)
+    eval_list = [n for n in nets if not n.training]
+
+    try:
+        # set to train mode
+        with torch.set_grad_enabled(True):
+            yield [n.train() for n in nets]
+    finally:
+        # Return required networks to eval_list
+        for n in eval_list:
+            n.eval()

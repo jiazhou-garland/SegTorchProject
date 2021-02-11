@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,7 +16,7 @@ a layer is requested the factory name and any necessary arguments are passed to 
 is typically a type but can be any callable producing a layer object.
 
 The factory objects contain functions keyed to names converted to upper case, these names can be referred to as members
-of the factory so that they can function as constant identifiers. eg. instance normalisation is named `Norm.INSTANCE`.
+of the factory so that they can function as constant identifiers. eg. instance normalization is named `Norm.INSTANCE`.
 
 For example, to get a transpose convolution layer the name is needed and then a dimension argument is provided which is
 passed to the factory function:
@@ -60,7 +60,7 @@ can be parameterized with the factory name and the arguments to pass to the crea
     layer = use_factory( (fact.TEST, kwargs) )
 """
 
-from typing import Any, Callable, Dict, Tuple, Type, Union
+from typing import Any, Callable, Dict, Optional, Tuple, Type, Union
 
 import torch.nn as nn
 
@@ -178,14 +178,13 @@ def split_args(args):
 
     if isinstance(args, str):
         return args, {}
-    else:
-        name_obj, name_args = args
+    name_obj, name_args = args
 
-        if not isinstance(name_obj, (str, Callable)) or not isinstance(name_args, dict):
-            msg = "Layer specifiers must be single strings or pairs of the form (name/object-types, argument dict)"
-            raise TypeError(msg)
+    if not isinstance(name_obj, (str, Callable)) or not isinstance(name_args, dict):
+        msg = "Layer specifiers must be single strings or pairs of the form (name/object-types, argument dict)"
+        raise TypeError(msg)
 
-        return name_obj, name_args
+    return name_obj, name_args
 
 
 # Define factories for these layer types
@@ -216,7 +215,26 @@ def batch_factory(dim: int) -> Type[Union[nn.BatchNorm1d, nn.BatchNorm2d, nn.Bat
     return types[dim - 1]
 
 
-Norm.add_factory_callable("group", lambda: nn.modules.GroupNorm)
+@Norm.factory_function("group")
+def group_factory(_dim: Optional[int] = None) -> Type[nn.GroupNorm]:
+    return nn.GroupNorm
+
+
+@Norm.factory_function("layer")
+def layer_factory(_dim: Optional[int] = None) -> Type[nn.LayerNorm]:
+    return nn.LayerNorm
+
+
+@Norm.factory_function("localresponse")
+def local_response_factory(_dim: Optional[int] = None) -> Type[nn.LocalResponseNorm]:
+    return nn.LocalResponseNorm
+
+
+@Norm.factory_function("syncbatch")
+def sync_batch_factory(_dim: Optional[int] = None) -> Type[nn.SyncBatchNorm]:
+    return nn.SyncBatchNorm
+
+
 Act.add_factory_callable("elu", lambda: nn.modules.ELU)
 Act.add_factory_callable("relu", lambda: nn.modules.ReLU)
 Act.add_factory_callable("leakyrelu", lambda: nn.modules.LeakyReLU)
@@ -229,6 +247,20 @@ Act.add_factory_callable("sigmoid", lambda: nn.modules.Sigmoid)
 Act.add_factory_callable("tanh", lambda: nn.modules.Tanh)
 Act.add_factory_callable("softmax", lambda: nn.modules.Softmax)
 Act.add_factory_callable("logsoftmax", lambda: nn.modules.LogSoftmax)
+
+
+@Act.factory_function("swish")
+def swish_factory():
+    from monai.networks.blocks.activation import Swish
+
+    return Swish
+
+
+@Act.factory_function("mish")
+def mish_factory():
+    from monai.networks.blocks.activation import Mish
+
+    return Mish
 
 
 @Conv.factory_function("conv")

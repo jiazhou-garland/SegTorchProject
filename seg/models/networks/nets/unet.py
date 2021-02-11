@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -17,7 +17,9 @@ import torch.nn as nn
 from seg.models.networks.blocks.convolutions import Convolution, ResidualUnit
 from seg.models.networks.layers.factories import Act, Norm
 from seg.models.networks.layers.simplelayers import SkipConnection
-# from seg.models.utils import alias, export
+# from monai.utils import alias, export
+
+__all__ = ["UNet", "Unet", "unet"]
 
 
 # @export("monai.networks.nets")
@@ -35,7 +37,7 @@ class UNet(nn.Module):
         num_res_units: int = 0,
         act=Act.PRELU,
         norm=Norm.INSTANCE,
-        dropout=0,
+        dropout=0.0,
     ) -> None:
         """
         Enhanced version of UNet which has residual units implemented with the ResidualUnit class.
@@ -56,7 +58,7 @@ class UNet(nn.Module):
             norm: feature normalization type and arguments. Defaults to instance norm.
             dropout: dropout ratio. Defaults to no dropout.
         """
-        super(UNet,self).__init__()
+        super().__init__()
 
         self.dimensions = dimensions
         self.in_channels = in_channels
@@ -87,7 +89,7 @@ class UNet(nn.Module):
             c = channels[0]
             s = strides[0]
 
-            subblock: Union[nn.Sequential, ResidualUnit, Convolution]
+            subblock: nn.Module
 
             if len(channels) > 2:
                 subblock = _create_block(c, c, channels[1:], strides[1:], False)  # continue recursion down
@@ -104,9 +106,7 @@ class UNet(nn.Module):
 
         self.model = _create_block(in_channels, out_channels, self.channels, self.strides, True)
 
-    def _get_down_layer(
-        self, in_channels: int, out_channels: int, strides: int, is_top: bool
-    ) -> Union[ResidualUnit, Convolution]:
+    def _get_down_layer(self, in_channels: int, out_channels: int, strides: int, is_top: bool) -> nn.Module:
         """
         Args:
             in_channels: number of input channels.
@@ -126,19 +126,18 @@ class UNet(nn.Module):
                 norm=self.norm,
                 dropout=self.dropout,
             )
-        else:
-            return Convolution(
-                self.dimensions,
-                in_channels,
-                out_channels,
-                strides=strides,
-                kernel_size=self.kernel_size,
-                act=self.act,
-                norm=self.norm,
-                dropout=self.dropout,
-            )
+        return Convolution(
+            self.dimensions,
+            in_channels,
+            out_channels,
+            strides=strides,
+            kernel_size=self.kernel_size,
+            act=self.act,
+            norm=self.norm,
+            dropout=self.dropout,
+        )
 
-    def _get_bottom_layer(self, in_channels: int, out_channels: int) -> Union[ResidualUnit, Convolution]:
+    def _get_bottom_layer(self, in_channels: int, out_channels: int) -> nn.Module:
         """
         Args:
             in_channels: number of input channels.
@@ -146,9 +145,7 @@ class UNet(nn.Module):
         """
         return self._get_down_layer(in_channels, out_channels, 1, False)
 
-    def _get_up_layer(
-        self, in_channels: int, out_channels: int, strides: int, is_top: bool
-    ) -> Union[Convolution, nn.Sequential]:
+    def _get_up_layer(self, in_channels: int, out_channels: int, strides: int, is_top: bool) -> nn.Module:
         """
         Args:
             in_channels: number of input channels.

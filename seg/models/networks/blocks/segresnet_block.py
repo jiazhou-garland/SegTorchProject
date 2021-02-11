@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -9,26 +9,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Union
+
 import torch.nn as nn
 
 from seg.models.networks.blocks.convolutions import Convolution
 from seg.models.networks.blocks.upsample import UpSample
 from seg.models.networks.layers.factories import Act, Norm
+from seg.models.networks.utils.enums import InterpolateMode, UpsampleMode
 
 
 def get_norm_layer(spatial_dims: int, in_channels: int, norm_name: str, num_groups: int = 8):
     if norm_name not in ["batch", "instance", "group"]:
         raise ValueError(f"Unsupported normalization mode: {norm_name}")
+    if norm_name == "group":
+        norm = Norm[norm_name](num_groups=num_groups, num_channels=in_channels)
     else:
-        if norm_name == "group":
-            norm = Norm[norm_name](num_groups=num_groups, num_channels=in_channels)
-        else:
-            norm = Norm[norm_name, spatial_dims](in_channels)
-        if norm.bias is not None:
-            nn.init.zeros_(norm.bias)
-        if norm.weight is not None:
-            nn.init.ones_(norm.weight)
-        return norm
+        norm = Norm[norm_name, spatial_dims](in_channels)
+    if norm.bias is not None:
+        nn.init.zeros_(norm.bias)
+    if norm.weight is not None:
+        nn.init.ones_(norm.weight)
+    return norm
 
 
 def get_conv_layer(
@@ -46,19 +48,18 @@ def get_conv_layer(
     )
 
 
-def get_upsample_layer(spatial_dims: int, in_channels: int, upsample_mode: str = "trilinear", scale_factor: int = 2):
-    up_module: nn.Module
-    if upsample_mode == "transpose":
-        up_module = UpSample(
-            spatial_dims,
-            in_channels,
-            scale_factor=scale_factor,
-            with_conv=True,
-        )
-    else:
-        upsample_mode = "bilinear" if spatial_dims == 2 else "trilinear"
-        up_module = nn.Upsample(scale_factor=scale_factor, mode=upsample_mode, align_corners=False)
-    return up_module
+def get_upsample_layer(
+    spatial_dims: int, in_channels: int, upsample_mode: Union[UpsampleMode, str] = "nontrainable", scale_factor: int = 2
+):
+    return UpSample(
+        dimensions=spatial_dims,
+        in_channels=in_channels,
+        out_channels=in_channels,
+        scale_factor=scale_factor,
+        mode=upsample_mode,
+        interp_mode=InterpolateMode.LINEAR,
+        align_corners=False,
+    )
 
 
 class ResBlock(nn.Module):
@@ -89,8 +90,10 @@ class ResBlock(nn.Module):
 
         super().__init__()
 
-        assert kernel_size % 2 == 1, "kernel_size should be an odd number."
-        assert in_channels % num_groups == 0, "in_channels should be divisible by num_groups."
+        if kernel_size % 2 != 1:
+            raise AssertionError("kernel_size should be an odd number.")
+        if in_channels % num_groups != 0:
+            raise AssertionError("in_channels should be divisible by num_groups.")
 
         self.norm1 = get_norm_layer(spatial_dims, in_channels, norm_name, num_groups=num_groups)
         self.norm2 = get_norm_layer(spatial_dims, in_channels, norm_name, num_groups=num_groups)

@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -10,6 +10,25 @@
 # limitations under the License.
 
 from enum import Enum
+
+__all__ = [
+    "NumpyPadMode",
+    "GridSampleMode",
+    "InterpolateMode",
+    "UpsampleMode",
+    "BlendMode",
+    "PytorchPadMode",
+    "GridSamplePadMode",
+    "Average",
+    "MetricReduction",
+    "LossReduction",
+    "Weight",
+    "Normalization",
+    "Activation",
+    "ChannelMatching",
+    "SkipMode",
+    "Method",
+]
 
 
 class NumpyPadMode(Enum):
@@ -57,14 +76,12 @@ class InterpolateMode(Enum):
 
 class UpsampleMode(Enum):
     """
-    See also: https://pytorch.org/docs/stable/nn.html#upsample
+    See also: :py:class:`monai.networks.blocks.UpSample`
     """
 
-    NEAREST = "nearest"
-    LINEAR = "linear"
-    BILINEAR = "bilinear"
-    BICUBIC = "bicubic"
-    TRILINEAR = "trilinear"
+    DECONV = "deconv"
+    NONTRAINABLE = "nontrainable"  # e.g. using torch.nn.Upsample
+    PIXELSHUFFLE = "pixelshuffle"
 
 
 class BlendMode(Enum):
@@ -146,7 +163,7 @@ class Weight(Enum):
     UNIFORM = "uniform"
 
 
-class Normalisation(Enum):
+class Normalization(Enum):
     """
     See also:
         - :py:class:`monai.networks.nets.ConvNormActi`
@@ -178,6 +195,16 @@ class ChannelMatching(Enum):
 
     PAD = "pad"
     PROJECT = "project"
+
+
+class SkipMode(Enum):
+    """
+    See also: :py:class:`monai.networks.layers.SkipConnection`
+    """
+
+    CAT = "cat"
+    ADD = "add"
+    MUL = "mul"
 
 
 class Method(Enum):

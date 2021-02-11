@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -15,9 +15,10 @@ import torch
 import torch.nn as nn
 
 from seg.models.networks.utils.utils import to_norm_affine
+from seg.models.networks.utils.enums import GridSampleMode, GridSamplePadMode
 from seg.models.networks.utils.module import optional_import
 from seg.models.networks.utils.misc import ensure_tuple
-from seg.models.networks.utils.enums import GridSampleMode,GridSamplePadMode
+
 _C, _ = optional_import("monai._C")
 
 __all__ = ["AffineTransform", "grid_pull", "grid_push", "grid_count", "grid_grad"]
@@ -42,8 +43,10 @@ class _GridPull(torch.autograd.Function):
         grads = _C.grid_pull_backward(grad, *var, *opt)
         if ctx.needs_input_grad[0]:
             grad_input = grads[0]
-        if ctx.needs_input_grad[1]:
-            grad_grid = grads[1]
+            if ctx.needs_input_grad[1]:
+                grad_grid = grads[1]
+        elif ctx.needs_input_grad[1]:
+            grad_grid = grads[0]
         return grad_input, grad_grid, None, None, None
 
 
@@ -134,8 +137,10 @@ class _GridPush(torch.autograd.Function):
         grads = _C.grid_push_backward(grad, *var, *opt)
         if ctx.needs_input_grad[0]:
             grad_input = grads[0]
-        if ctx.needs_input_grad[1]:
-            grad_grid = grads[1]
+            if ctx.needs_input_grad[1]:
+                grad_grid = grads[1]
+        elif ctx.needs_input_grad[1]:
+            grad_grid = grads[0]
         return grad_input, grad_grid, None, None, None, None
 
 
@@ -329,8 +334,10 @@ class _GridGrad(torch.autograd.Function):
             grads = _C.grid_grad_backward(grad, *var, *opt)
             if ctx.needs_input_grad[0]:
                 grad_input = grads[0]
-            if ctx.needs_input_grad[1]:
-                grad_grid = grads[1]
+                if ctx.needs_input_grad[1]:
+                    grad_grid = grads[1]
+            elif ctx.needs_input_grad[1]:
+                grad_grid = grads[0]
         return grad_input, grad_grid, None, None, None
 
 
@@ -482,7 +489,7 @@ class AffineTransform(nn.Module):
 
         """
         # validate `theta`
-        if not torch.is_tensor(theta):
+        if not isinstance(theta, torch.Tensor):
             raise TypeError(f"theta must be torch.Tensor but is {type(theta).__name__}.")
         if theta.dim() not in (2, 3):
             raise ValueError(f"theta must be Nxdxd or dxd, got {theta.shape}.")
@@ -499,7 +506,7 @@ class AffineTransform(nn.Module):
             raise ValueError(f"theta must be Nx3x3 or Nx4x4, got {theta.shape}.")
 
         # validate `src`
-        if not torch.is_tensor(src):
+        if not isinstance(src, torch.Tensor):
             raise TypeError(f"src must be torch.Tensor but is {type(src).__name__}.")
         sr = src.dim() - 2  # input spatial rank
         if sr not in (2, 3):
@@ -513,7 +520,7 @@ class AffineTransform(nn.Module):
         if spatial_size is not None:
             dst_size = src_size[:2] + ensure_tuple(spatial_size)
 
-        # reverse and normalise theta if needed
+        # reverse and normalize theta if needed
         if not self.normalized:
             theta = to_norm_affine(
                 affine=theta, src_size=src_size[2:], dst_size=dst_size[2:], align_corners=self.align_corners

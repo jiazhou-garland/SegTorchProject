@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -12,9 +12,43 @@
 
 from typing import List, Optional, Sequence, Union
 
+import torch
 import torch.nn as nn
 
-from seg.models.networks.blocks.dynunet_block import *
+from seg.models.networks.blocks.dynunet_block import UnetBasicBlock, UnetOutBlock, UnetResBlock, UnetUpBlock
+
+__all__ = ["DynUNet", "DynUnet", "Dynunet"]
+
+
+class DynUNetSkipLayer(nn.Module):
+    """
+    Defines a layer in the UNet topology which combines the downsample and upsample pathways with the skip connection.
+    The member `next_layer` may refer to instances of this class or the final bottleneck layer at the bottom the UNet
+    structure. The purpose of using a recursive class like this is to get around the Torchscript restrictions on
+    looping over lists of layers and accumulating lists of output tensors which much be indexed. The `heads` list is
+    shared amongst all the instances of this class and is used to store the output from the supervision heads during
+    forward passes of the network.
+    """
+
+    heads: List[torch.Tensor]
+
+    def __init__(self, index, heads, downsample, upsample, super_head, next_layer):
+        super().__init__()
+        self.downsample = downsample
+        self.upsample = upsample
+        self.next_layer = next_layer
+        self.super_head = super_head
+        self.heads = heads
+        self.index = index
+
+    def forward(self, x):
+        downout = self.downsample(x)
+        nextout = self.next_layer(downout)
+        upout = self.upsample(nextout, downout)
+
+        self.heads[self.index] = self.super_head(upout)
+
+        return upout
 
 
 class DynUNet(nn.Module):
@@ -46,10 +80,6 @@ class DynUNet(nn.Module):
         upsample_kernel_size: convolution kernel size for transposed convolution layers.
         norm_name: [``"batch"``, ``"instance"``, ``"group"``]
             feature normalization type and arguments.
-        deep_supervision: whether to add deep supervision head before output. Defaults to ``True``.
-            If added, in training mode, the network will output not only the last feature maps
-            (after being converted via output block), but also the previous feature maps that come
-            from the intermediate up sample layers.
         deep_supr_num: number of feature maps that will output during deep supervision head. The
             value should be less than the number of up sample layers. Defaults to 1.
         res_block: whether to use residual connection based convolution blocks during the network.
@@ -65,7 +95,6 @@ class DynUNet(nn.Module):
         strides: Sequence[Union[Sequence[int], int]],
         upsample_kernel_size: Sequence[Union[Sequence[int], int]],
         norm_name: str = "instance",
-        deep_supervision: bool = True,
         deep_supr_num: int = 1,
         res_block: bool = False,
     ):
@@ -77,7 +106,6 @@ class DynUNet(nn.Module):
         self.strides = strides
         self.upsample_kernel_size = upsample_kernel_size
         self.norm_name = norm_name
-        self.deep_supervision = deep_supervision
         self.conv_block = UnetResBlock if res_block else UnetBasicBlock
         self.filters = [min(2 ** (5 + i), 320 if spatial_dims == 3 else 512) for i in range(len(strides))]
         self.input_block = self.get_input_block()
@@ -91,43 +119,76 @@ class DynUNet(nn.Module):
         self.check_kernel_stride()
         self.check_deep_supr_num()
 
+        # initialize the typed list of supervision head outputs so that Torchscript can recognize what's going on
+        self.heads: List[torch.Tensor] = [torch.rand(1)] * (len(self.deep_supervision_heads) + 1)
+
+        def create_skips(index, downsamples, upsamples, superheads, bottleneck):
+            """
+            Construct the UNet topology as a sequence of skip layers terminating with the bottleneck layer. This is
+            done recursively from the top down since a recursive nn.Module subclass is being used to be compatible
+            with Torchscript. Initially the length of `downsamples` will be one more than that of `superheads`
+            since the `input_block` is passed to this function as the first item in `downsamples`, however this
+            shouldn't be associated with a supervision head.
+            """
+
+            if len(downsamples) != len(upsamples):
+                raise AssertionError(f"{len(downsamples)} != {len(upsamples)}")
+            if (len(downsamples) - len(superheads)) not in (1, 0):
+                raise AssertionError(f"{len(downsamples)}-(0,1) != {len(superheads)}")
+
+            if len(downsamples) == 0:  # bottom of the network, pass the bottleneck block
+                return bottleneck
+            if index == 0:  # don't associate a supervision head with self.input_block
+                current_head, rest_heads = nn.Identity(), superheads
+            else:
+                current_head, rest_heads = superheads[0], superheads[1:]
+
+            # create the next layer down, this will stop at the bottleneck layer
+            next_layer = create_skips(1 + index, downsamples[1:], upsamples[1:], rest_heads, bottleneck)
+
+            return DynUNetSkipLayer(index, self.heads, downsamples[0], upsamples[0], current_head, next_layer)
+
+        self.skip_layers = create_skips(
+            0,
+            [self.input_block] + list(self.downsamples),
+            self.upsamples[::-1],
+            self.deep_supervision_heads,
+            self.bottleneck,
+        )
+
     def check_kernel_stride(self):
         kernels, strides = self.kernel_size, self.strides
         error_msg = "length of kernel_size and strides should be the same, and no less than 3."
-        assert len(kernels) == len(strides) and len(kernels) >= 3, error_msg
+        if not (len(kernels) == len(strides) and len(kernels) >= 3):
+            raise AssertionError(error_msg)
+
         for idx in range(len(kernels)):
             kernel, stride = kernels[idx], strides[idx]
             if not isinstance(kernel, int):
                 error_msg = "length of kernel_size in block {} should be the same as spatial_dims.".format(idx)
-                assert len(kernel) == self.spatial_dims, error_msg
+                if len(kernel) != self.spatial_dims:
+                    raise AssertionError(error_msg)
             if not isinstance(stride, int):
                 error_msg = "length of stride in block {} should be the same as spatial_dims.".format(idx)
-                assert len(stride) == self.spatial_dims, error_msg
+                if len(stride) != self.spatial_dims:
+                    raise AssertionError(error_msg)
 
     def check_deep_supr_num(self):
         deep_supr_num, strides = self.deep_supr_num, self.strides
         num_up_layers = len(strides) - 1
-        error_msg = "deep_supr_num should be less than the number of up sample layers."
-        assert 1 <= deep_supr_num < num_up_layers, error_msg
+        if deep_supr_num < 1 or deep_supr_num >= num_up_layers:
+            raise AssertionError("deep_supr_num should be less than the number of up sample layers.")
 
     def forward(self, x):
-        out = self.input_block(x)
-        outputs = [out]
-        for downsample in self.downsamples:
-            out = downsample(out)
-            outputs.append(out)
-        out = self.bottleneck(out)
-        upsample_outs = []
-        for upsample, skip in zip(self.upsamples, reversed(outputs)):
-            out = upsample(out, skip)
-            upsample_outs.append(out)
-        out = self.output_block(out)
-        if self.training and self.deep_supervision:
-            start_output_idx = len(upsample_outs) - 1 - self.deep_supr_num
-            upsample_outs = upsample_outs[start_output_idx:-1][::-1]
-            preds = [self.deep_supervision_heads[i](out) for i, out in enumerate(upsample_outs)]
-            return [out] + preds
-        return out
+        out = self.skip_layers(x)
+        return self.output_block(out)
+
+    def get_feature_maps(self):
+        """
+        Return the feature maps.
+
+        """
+        return self.heads[1 : self.deep_supr_num + 1]
 
     def get_input_block(self):
         return self.conv_block(
@@ -219,3 +280,6 @@ class DynUNet(nn.Module):
         elif "norm" in name:
             nn.init.normal_(module.weight, 1.0, 0.02)
             nn.init.zeros_(module.bias)
+
+
+DynUnet = Dynunet = DynUNet

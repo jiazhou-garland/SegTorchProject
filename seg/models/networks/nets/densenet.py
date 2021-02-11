@@ -1,4 +1,4 @@
-# Copyright 2020 MONAI Consortium
+# Copyright 2020 - 2021 MONAI Consortium
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -9,16 +9,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from collections import OrderedDict
 from typing import Callable, Sequence, Type, Union
 
 import torch
 import torch.nn as nn
+from torch.hub import load_state_dict_from_url
 
 from seg.models.networks.layers.factories import Conv, Dropout, Norm, Pool
 
 
-class _DenseLayer(nn.Sequential):
+class _DenseLayer(nn.Module):
     def __init__(
         self, spatial_dims: int, in_channels: int, growth_rate: int, bn_size: int, dropout_prob: float
     ) -> None:
@@ -38,19 +40,21 @@ class _DenseLayer(nn.Sequential):
         norm_type: Callable = Norm[Norm.BATCH, spatial_dims]
         dropout_type: Callable = Dropout[Dropout.DROPOUT, spatial_dims]
 
-        self.add_module("norm1", norm_type(in_channels))
-        self.add_module("relu1", nn.ReLU(inplace=True))
-        self.add_module("conv1", conv_type(in_channels, out_channels, kernel_size=1, bias=False))
+        self.layers = nn.Sequential()
 
-        self.add_module("norm2", norm_type(out_channels))
-        self.add_module("relu2", nn.ReLU(inplace=True))
-        self.add_module("conv2", conv_type(out_channels, growth_rate, kernel_size=3, padding=1, bias=False))
+        self.layers.add_module("norm1", norm_type(in_channels))
+        self.layers.add_module("relu1", nn.ReLU(inplace=True))
+        self.layers.add_module("conv1", conv_type(in_channels, out_channels, kernel_size=1, bias=False))
+
+        self.layers.add_module("norm2", norm_type(out_channels))
+        self.layers.add_module("relu2", nn.ReLU(inplace=True))
+        self.layers.add_module("conv2", conv_type(out_channels, growth_rate, kernel_size=3, padding=1, bias=False))
 
         if dropout_prob > 0:
-            self.add_module("dropout", dropout_type(dropout_prob))
+            self.layers.add_module("dropout", dropout_type(dropout_prob))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        new_features = super(_DenseLayer, self).forward(x)
+        new_features = self.layers(x)
         return torch.cat([x, new_features], 1)
 
 
@@ -170,9 +174,9 @@ class DenseNet(nn.Module):
             OrderedDict(
                 [
                     ("relu", nn.ReLU(inplace=True)),
-                    ("norm", avg_pool_type(1)),
+                    ("pool", avg_pool_type(1)),
                     ("flatten", nn.Flatten(1)),
-                    ("class", nn.Linear(in_channels, out_channels)),
+                    ("out", nn.Linear(in_channels, out_channels)),
                 ]
             )
         )
@@ -192,21 +196,80 @@ class DenseNet(nn.Module):
         return x
 
 
-def densenet121(**kwargs) -> DenseNet:
+model_urls = {
+    "densenet121": "https://download.pytorch.org/models/densenet121-a639ec97.pth",
+    "densenet169": "https://download.pytorch.org/models/densenet169-b2777c0a.pth",
+    "densenet201": "https://download.pytorch.org/models/densenet201-c1103571.pth",
+}
+
+
+def _load_state_dict(model, model_url, progress):
+    """
+    This function is used to load pretrained models.
+    Adapted from `PyTorch Hub 2D version
+    <https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py>`_
+    """
+    pattern = re.compile(
+        r"^(.*denselayer\d+\.(?:norm|relu|conv))\.((?:[12])\.(?:weight|bias|running_mean|running_var))$"
+    )
+
+    state_dict = load_state_dict_from_url(model_url, progress=progress)
+    for key in list(state_dict.keys()):
+        res = pattern.match(key)
+        if res:
+            new_key = res.group(1) + res.group(2)
+            state_dict[new_key] = state_dict[key]
+            del state_dict[key]
+
+    model_dict = model.state_dict()
+    state_dict = {
+        k: v for k, v in state_dict.items() if (k in model_dict) and (model_dict[k].shape == state_dict[k].shape)
+    }
+    model_dict.update(state_dict)
+    model.load_state_dict(model_dict)
+
+
+def densenet121(pretrained: bool = False, progress: bool = True, **kwargs) -> DenseNet:
+    """
+    when `spatial_dims = 2`, specify `pretrained = True` can load Imagenet pretrained weights achieved
+    from `PyTorch Hub 2D version
+    <https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py>`_
+    """
     model = DenseNet(init_features=64, growth_rate=32, block_config=(6, 12, 24, 16), **kwargs)
+    if pretrained:
+        arch = "densenet121"
+        _load_state_dict(model, model_urls[arch], progress)
     return model
 
 
-def densenet169(**kwargs) -> DenseNet:
+def densenet169(pretrained: bool = False, progress: bool = True, **kwargs) -> DenseNet:
+    """
+    when `spatial_dims = 2`, specify `pretrained = True` can load Imagenet pretrained weights achieved
+    from `PyTorch Hub 2D version
+    <https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py>`_
+    """
     model = DenseNet(init_features=64, growth_rate=32, block_config=(6, 12, 32, 32), **kwargs)
+    if pretrained:
+        arch = "densenet169"
+        _load_state_dict(model, model_urls[arch], progress)
     return model
 
 
-def densenet201(**kwargs) -> DenseNet:
+def densenet201(pretrained: bool = False, progress: bool = True, **kwargs) -> DenseNet:
+    """
+    when `spatial_dims = 2`, specify `pretrained = True` can load Imagenet pretrained weights achieved
+    from `PyTorch Hub 2D version
+    <https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py>`_
+    """
     model = DenseNet(init_features=64, growth_rate=32, block_config=(6, 12, 48, 32), **kwargs)
+    if pretrained:
+        arch = "densenet201"
+        _load_state_dict(model, model_urls[arch], progress)
     return model
 
 
-def densenet264(**kwargs) -> DenseNet:
+def densenet264(pretrained: bool = False, progress: bool = True, **kwargs) -> DenseNet:
     model = DenseNet(init_features=64, growth_rate=32, block_config=(6, 12, 64, 48), **kwargs)
+    if pretrained:
+        print("Currently PyTorch Hub does not provide densenet264 pretrained models.")
     return model
