@@ -23,10 +23,11 @@ from seg.metrics.mIOU import IOUMetric
 if __name__ == '__main__':
     EPOCHS = 50
     InteLog = 10
+    schedulerStep=9
     batch_size = 28
     # ----------------------------------------------------------------------------------------------
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    current_path = os.path.join('./checkpoint', current_time)
+    current_path = os.path.join('../checkpoint/unet', current_time)
     if not os.path.exists(current_path): os.mkdir(current_path)
     model_dir = os.path.join(current_path, 'models')
     if not os.path.exists(model_dir): os.mkdir(model_dir)
@@ -49,13 +50,13 @@ if __name__ == '__main__':
         strides=(2, 2, 2, 2),
         num_res_units=2,
     )
-    model_ckpt="./checkpoint/20210210_123817/models/state_dict_model_e_25.pt"
-    model.load_state_dict(torch.load(model_ckpt))
+    # model_ckpt="./checkpoint/20210210_123817/models/state_dict_model_e_25.pt"
+    # model.load_state_dict(torch.load(model_ckpt))
     model.train()
     model.cuda()
     # ----------------------------------------------------------------------------------------------
-    # optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    # optimizer = optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
     GDiceLoss = GeneralizedDiceLoss(softmax=True)
     metirc = IOUMetric(num_classes=10)
@@ -76,6 +77,8 @@ if __name__ == '__main__':
                 loss_scalar = loss.cpu().detach().numpy()
                 print('Epoch [{}][{}/{}]: loss: {:.6f}  mIOU: {:.6f}'.format(epoch + 1, step, STEPS, loss_scalar,
                                                                              mean_iu))
+                print("ious: 0:{:.3f} 1:{:.3f} 2:{:.3f} 3:{:.3f} 4:{:.3f} 5:{:.3f} 6:{:.3f} 7:{:.3f} 8:{:.3f} 9:{:.3f} ".format(
+                    ius[0],ius[1],ius[2],ius[3],ius[4],ius[5],ius[6],ius[7],ius[8],ius[9]))
                 writer.add_scalar('loss', loss_scalar, epoch * STEPS + step)
                 writer.add_scalar('mIOU', mean_iu, epoch * STEPS + step)
                 for i in range(len(ius)):
@@ -84,7 +87,7 @@ if __name__ == '__main__':
 
             loss.backward()
             optimizer.step()
-        if (epoch+1) % 8 == 0: scheduler.step()
+        if (epoch+1) % schedulerStep == 0: scheduler.step()
         model_subdir = "state_dict_model_e_%d.pt" % epoch
         model_save_name = os.path.join(model_dir, model_subdir)
         torch.save(model.state_dict(), model_save_name)

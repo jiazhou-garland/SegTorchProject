@@ -27,7 +27,7 @@ if __name__ == '__main__':
     # image=image.unsqueeze(0)
     # print(image.shape)
     # ----------------------------------------------------------------------------------------------
-    model_ckpt="./checkpoint/20210210_172221/models/state_dict_model_e_16.pt"
+    model_ckpt="../checkpoint/20210210_172221/models/state_dict_model_e_16.pt"
     model = UNet(
         dimensions=2,
         in_channels=4,

@@ -26,7 +26,7 @@ if __name__ == '__main__':
     batch_size = 28
     # ----------------------------------------------------------------------------------------------
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    current_path = os.path.join('../checkpoint', current_time)
+    current_path = os.path.join('../checkpoint/hrnet', current_time)
     if not os.path.exists(current_path): os.mkdir(current_path)
     model_dir = os.path.join(current_path, 'models')
     if not os.path.exists(model_dir): os.mkdir(model_dir)

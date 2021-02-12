@@ -7,8 +7,8 @@
 # -----------------------------------------
 #
 import torch
-from config import _C as config
-from config import update_config
+from seg.models.hrnet.config.config import _C as config
+from seg.models.hrnet.config.config import update_config
 from seg.models.hrnet.hrnet_ocr import get_seg_model
 
 if __name__ == '__main__':
