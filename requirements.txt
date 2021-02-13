@@ -32,3 +32,4 @@ torchvision==0.8.2+cu110
 typing-extensions==3.7.4.3
 urllib3==1.26.3
 Werkzeug==1.0.1
+yacs==0.1.8
