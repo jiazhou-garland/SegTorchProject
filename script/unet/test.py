@@ -18,16 +18,16 @@ from seg.models.networks.nets.unet import UNet
 
 
 if __name__ == '__main__':
-    # img_path="/media/jim/DISK/TEMP/Datasets/Others/suichang_round1_train_210120/000001.tif"
-    # image = np.array(Image.open(img_path), dtype=np.float32)
-    # print(image.shape)
-    # img_clone=image.copy()
-    # image = image / 255.0  # norm to 0 -1
-    # image = ToTensor()(image)
-    # image=image.unsqueeze(0)
-    # print(image.shape)
+    img_path="/media/jim/DISK/TEMP/Datasets/Others/suichang_round1_train_210120/000027.tif"
+    image = np.array(Image.open(img_path), dtype=np.float32)
+    print(image.shape)
+    img_clone=image.copy()
+    image = image / 255.0  # norm to 0 -1
+    image = ToTensor()(image)
+    image=image.unsqueeze(0)
+    print(image.shape)
     # ----------------------------------------------------------------------------------------------
-    model_ckpt="../checkpoint/unet/20210210_172221/models/state_dict_model_e_16.pt"
+    model_ckpt="../checkpoint/unet/20210212_221154/models/state_dict_model_e_49.pt"
     model = UNet(
         dimensions=2,
         in_channels=4,
@@ -37,11 +37,11 @@ if __name__ == '__main__':
         num_res_units=2,
     )
     model.load_state_dict(torch.load(model_ckpt))
-    # model.eval()
-    # model.cuda()
-    # # ----------------------------------------------------------------------------------------------
-    # predictions=model(image.cuda())
-    # predictions=nn.Softmax(dim=1)(predictions)
-    # predictions=predictions.squeeze(0).cpu().detach().numpy()
-    # display(img_clone[:,:,0:3],predictions)
+    model.eval()
+    model.cuda()
+    # ----------------------------------------------------------------------------------------------
+    predictions=model(image.cuda())
+    predictions=nn.Softmax(dim=1)(predictions)
+    predictions=predictions.squeeze(0).cpu().detach().numpy()
+    display(img_clone[:,:,0:3],predictions)
 

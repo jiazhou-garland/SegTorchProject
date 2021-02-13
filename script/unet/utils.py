@@ -14,9 +14,8 @@ def display(srcImg,pred):
     """
     label_list=["耕地", "林地", "草地", "道路", "城镇建设用地",
                   "农村建设用地", "工业用地", "构筑物", "水域", "裸地"]
-    # plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['font.sans-serif'] = ['simhei']
     # plt.rcParams['axes.unicode_minus'] = False
-
     plt.subplot(3, 4, 1),
     plt.title('原图')
     plt.imshow(srcImg.astype('uint8'))
