@@ -116,7 +116,9 @@ if __name__ == '__main__':
         for step, (images, labels) in enumerate(feeder_val):
             images = images.cuda()
             labels = labels.cuda()
-            preds = model(images)
+            preds_down = model(images)
+            h, w = labels.size(2), labels.size(3)
+            preds = F.interpolate(preds_down[1], (h, w), mode="bilinear")
             Floss = Focal_loss(preds, labels)
             Tloss = Tversky_loss(preds, labels)
             loss = Floss + Tloss
