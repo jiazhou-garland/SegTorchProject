@@ -12,15 +12,20 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor
+from torchvision import transforms as transforms
 
 class Loader(Dataset):
-    def __init__(self, DataPath):
+    def __init__(self, DataPath,Augment=True,FLIPV=0.5,FLIPH=0.5,ROT=0.5):
         self.DataPath = DataPath
         self.dataList = []
         self.length =self._readTXT(self.DataPath)
         self.random_indices = np.random.permutation(self.length)
 
-        self.Trans = ToTensor()
+        self.TTensor = ToTensor()
+        self.Aug=Augment
+        self.flipv=FLIPV
+        self.fliph=FLIPH
+        self.rotation=ROT
 
     def __len__(self):
         return self.length
@@ -28,10 +33,11 @@ class Loader(Dataset):
     def __getitem__(self, index):
         image_path, label_path=self.dataList[index]
         image = np.array(Image.open(image_path),dtype=np.float32)
-        image=image/255.0 #norm to 0 -1
-        image=self.Trans(image)
-
+        image=image/255.0 #norm to 0 - 1
         label_np_array = np.array(Image.open(label_path), dtype=np.int64) - 1
+
+        image,label_np_array=self._Aug(image,label_np_array)
+        image=self.TTensor(image)
         label_index = torch.from_numpy(np.expand_dims(label_np_array, 0))
         label = torch.zeros((10,256, 256))
         label.scatter_(0, label_index, 1).float()
@@ -46,8 +52,19 @@ class Loader(Dataset):
         random.shuffle(self.dataList)
         return len(self.dataList)
 
-
-
-
-
-
+    def _Aug(self,image,label):
+        if self.Aug:
+            if self.flipv > np.random.rand():
+                image=np.flip(image,axis=0)
+                label=np.flip(label,axis=0)
+            if self.fliph>np.random.rand():
+                image = np.flip(image, axis=1)
+                label = np.flip(label, axis=1)
+            if self.rotation>np.random.rand():
+                K=np.random.choice(4)
+                image = np.rot90(image, k=K)
+                label = np.rot90(label, k=K)
+            #deep copy
+            return image.copy(),label.copy()
+        else:
+            return image, label

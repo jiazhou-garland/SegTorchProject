@@ -34,7 +34,7 @@ if __name__ == '__main__':
     if not os.path.exists(log_dir): os.mkdir(log_dir)
     writer = SummaryWriter(log_dir)
     # ----------------------------------------------------------------------------------------------
-    txtPath = './train2.txt'
+    txtPath = './train.txt'
     datasets = Loader(txtPath)
     feeder = DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available(),
                         drop_last=True, num_workers=6)

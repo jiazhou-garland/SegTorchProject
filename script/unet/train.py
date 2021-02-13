@@ -23,9 +23,9 @@ from seg.loss.tversky import TverskyLoss
 from seg.metrics.mIOU import IOUMetric
 
 if __name__ == '__main__':
-    EPOCHS = 50
+    EPOCHS = 100
     InteLog = 10
-    schedulerStep = 9
+    schedulerStep = 30
     batch_size = 28
     # ----------------------------------------------------------------------------------------------
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -37,11 +37,17 @@ if __name__ == '__main__':
     if not os.path.exists(log_dir): os.mkdir(log_dir)
     writer = SummaryWriter(log_dir)
     # ----------------------------------------------------------------------------------------------
-    txtPath = '../train2.txt'
-    datasets = Loader(txtPath)
+    trainTxtPath = '../train.txt'
+    datasets = Loader(trainTxtPath, Augment=True)
     feeder = DataLoader(datasets, batch_size=batch_size, shuffle=True, pin_memory=torch.cuda.is_available(),
                         drop_last=True, num_workers=6)
     STEPS = len(feeder)
+
+    valTxtPath = '../val.txt'
+    datasets_val = Loader(valTxtPath, Augment=False)
+    feeder_val = DataLoader(datasets_val, batch_size=8, shuffle=False, pin_memory=torch.cuda.is_available(),
+                            drop_last=False, num_workers=6)
+    STEPS_val = len(feeder_val)
     # ----------------------------------------------------------------------------------------------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = UNet(
@@ -52,41 +58,48 @@ if __name__ == '__main__':
         strides=(2, 2, 2, 2),
         num_res_units=2,
     )
-    model_ckpt="../checkpoint/unet/20210212_215043/models/state_dict_model_e_0.pt"
-    model.load_state_dict(torch.load(model_ckpt))
+    # model_ckpt = "../checkpoint/unet/20210212_221154/models/state_dict_model_e_49.pt"
+    # model.load_state_dict(torch.load(model_ckpt))
     model.train()
     model.cuda()
     # ----------------------------------------------------------------------------------------------
-    # optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    # optimizer = optim.SGD(model.parameters(), lr=1e-3, momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.1)
     # ----------------------------------------------------------------------------------------------
     GDiceLoss = GeneralizedDiceLoss(softmax=True)
     LCGDiceLoss = LogCoshGeneralizedDiceLoss(softmax=True)
     Focal_loss = FocalLoss(gamma=8.0)
-    Tversky_loss = TverskyLoss(softmax=True,alpha=0.7, beta=0.3)
+    Tversky_loss = TverskyLoss(softmax=True, alpha=0.7, beta=0.3)
     # ----------------------------------------------------------------------------------------------
     metirc = IOUMetric(num_classes=10)
     # ----------------------------------------------------------------------------------------------
     for epoch in range(EPOCHS):
         print("curent learning rate is ", optimizer.param_groups[0]["lr"])
+        # ----------------------------------------------------------------------------------------------
+        # train for in a epoch
         for step, (images, labels) in enumerate(feeder):
             images = images.cuda()
             labels = labels.cuda()
             optimizer.zero_grad()
             preds = model(images)
             # loss = GDiceLoss(preds, labels)
-            Floss=Focal_loss(preds,labels)
-            Tloss=Tversky_loss(preds,labels)
-            loss=Floss+Tloss
+            Floss = Focal_loss(preds, labels)
+            Tloss = Tversky_loss(preds, labels)
+            loss = Floss + Tloss
+
             if step % InteLog == 0:
                 pred_index = np.argmax(preds.cpu().detach().numpy(), axis=1)
                 label_index = np.argmax(labels.cpu().detach().numpy(), axis=1)
                 metirc.add_batch(pred_index, label_index)
                 _, _, ius, mean_iu, _ = metirc.evaluate()
                 loss_scalar = loss.cpu().detach().numpy()
-                print('Epoch [{}][{}/{}]: loss: {:.6f}  mIOU: {:.6f}'.format(epoch + 1, step, STEPS, loss_scalar,
-                                                                             mean_iu))
+                Floss_scalar = Floss.cpu().detach().numpy()
+                Tloss_scalar = Tloss.cpu().detach().numpy()
+                print('Epoch [{}][{}/{}]: loss: {:.6f} (F:{:.6f} T:{:.6f}) mIOU: {:.6f}'.format(epoch + 1, step, STEPS,
+                                                                                                loss_scalar,
+                                                                                                Floss_scalar,
+                                                                                                Tloss_scalar, mean_iu))
                 print(
                     "ious: 0:{:.3f} 1:{:.3f} 2:{:.3f} 3:{:.3f} 4:{:.3f} 5:{:.3f} 6:{:.3f} 7:{:.3f} 8:{:.3f} 9:{:.3f} ".format(
                         ius[0], ius[1], ius[2], ius[3], ius[4], ius[5], ius[6], ius[7], ius[8], ius[9]))
@@ -95,9 +108,43 @@ if __name__ == '__main__':
                 for i in range(len(ius)):
                     section = 'IOU/%d' % i
                     writer.add_scalar(section, ius[i], epoch * STEPS + step)
-
             loss.backward()
             optimizer.step()
+        # ----------------------------------------------------------------------------------------------
+        # val for in a epoch
+        loss_val = np.zeros((STEPS_val, 1))
+        mIOU_val = np.zeros((STEPS_val, 1))
+        IOUs_val = np.zeros((STEPS_val, 10))
+        for step, (images, labels) in enumerate(feeder_val):
+            images = images.cuda()
+            labels = labels.cuda()
+            preds = model(images)
+            Floss = Focal_loss(preds, labels)
+            Tloss = Tversky_loss(preds, labels)
+            loss = Floss + Tloss
+
+            pred_index = np.argmax(preds.cpu().detach().numpy(), axis=1)
+            label_index = np.argmax(labels.cpu().detach().numpy(), axis=1)
+            metirc.add_batch(pred_index, label_index)
+            _, _, ius, mean_iu, _ = metirc.evaluate()
+            loss_scalar = loss.cpu().detach().numpy()
+            loss_val[step] = loss_scalar
+            mIOU_val[step] = mean_iu
+            IOUs_val[step, :] = ius
+        val_loss_m = np.mean(loss_val)
+        mIOU_m = np.mean(mIOU_val)
+        ius_m = np.mean(IOUs_val, axis=0)
+        print('Epoch [{}]: loss_val: {:.6f} mIOU: {:.6f}'.format(epoch + 1,val_loss_m,mIOU_m))
+        print(
+            "ious: 0:{:.3f} 1:{:.3f} 2:{:.3f} 3:{:.3f} 4:{:.3f} 5:{:.3f} 6:{:.3f} 7:{:.3f} 8:{:.3f} 9:{:.3f} ".format(
+                ius_m[0], ius_m[1], ius_m[2], ius_m[3], ius_m[4], ius_m[5], ius_m[6], ius_m[7], ius_m[8], ius_m[9]))
+        writer.add_scalar('loss_val', val_loss_m, epoch)
+        writer.add_scalar('mIOU_val', mIOU_m, epoch)
+        for i in range(10):
+            section = 'IOU_val/%d' % i
+            writer.add_scalar(section, ius_m[i], epoch)
+
+        # ----------------------------------------------------------------------------------------------
         if (epoch + 1) % schedulerStep == 0: scheduler.step()
         model_subdir = "state_dict_model_e_%d.pt" % epoch
         model_save_name = os.path.join(model_dir, model_subdir)
