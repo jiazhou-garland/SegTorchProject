@@ -18,7 +18,7 @@ from seg.models.networks.nets.unet import UNet
 
 
 if __name__ == '__main__':
-    img_path="/media/jim/DISK/TEMP/Datasets/Others/suichang_round1_train_210120/000027.tif"
+    img_path="D:/TEMP/Datasets/Others/suichang_round1_train_210120/000027.tif"
     image = np.array(Image.open(img_path), dtype=np.float32)
     print(image.shape)
     img_clone=image.copy()
@@ -44,4 +44,9 @@ if __name__ == '__main__':
     predictions=nn.Softmax(dim=1)(predictions)
     predictions=predictions.squeeze(0).cpu().detach().numpy()
     display(img_clone[:,:,0:3],predictions)
+    print(predictions.shape)
+    result=np.argmax(predictions,axis=0)+1
+    print(result.shape)
+    result_labelFormat = Image.fromarray(np.uint8(result))
+    print(result_labelFormat)
 
