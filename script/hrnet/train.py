@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     valTxtPath = '../val.txt'
     datasets_val = Loader(valTxtPath, Augment=False)
-    feeder_val = DataLoader(datasets_val, batch_size=8, shuffle=False, pin_memory=torch.cuda.is_available(),
+    feeder_val = DataLoader(datasets_val, batch_size=2, shuffle=False, pin_memory=torch.cuda.is_available(),
                             drop_last=False, num_workers=6)
     STEPS_val = len(feeder_val)
     # ----------------------------------------------------------------------------------------------
@@ -73,7 +73,7 @@ if __name__ == '__main__':
     for epoch in range(EPOCHS):
         print("curent learning rate is ", optimizer.param_groups[0]["lr"])
         # ----------------------------------------------------------------------------------------------
-        # train for in a epoch
+        # train for in epoch
         for step, (images, labels) in enumerate(feeder):
             images = images.cuda()
             labels = labels.cuda()
@@ -109,7 +109,7 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
         # ----------------------------------------------------------------------------------------------
-        # val for in a epoch
+        # val for in epoch
         loss_val = np.zeros((STEPS_val, 1))
         mIOU_val = np.zeros((STEPS_val, 1))
         IOUs_val = np.zeros((STEPS_val, 10))
