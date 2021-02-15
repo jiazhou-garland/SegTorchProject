@@ -58,8 +58,8 @@ if __name__ == '__main__':
         strides=(2, 2, 2, 2),
         num_res_units=2,
     )
-    # model_ckpt = "../checkpoint/unet/20210212_221154/models/state_dict_model_e_49.pt"
-    # model.load_state_dict(torch.load(model_ckpt))
+    model_ckpt = "../checkpoint/unet/20210212_221154/models/state_dict_model_e_49.pt"
+    model.load_state_dict(torch.load(model_ckpt))
     model.train()
     model.cuda()
     # ----------------------------------------------------------------------------------------------

@@ -28,7 +28,7 @@ if __name__ == '__main__':
     EPOCHS = 100
     InteLog = 10
     schedulerStep = 30
-    batch_size = 8
+    batch_size = 6
     # ----------------------------------------------------------------------------------------------
     current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     current_path = os.path.join('../checkpoint/hrnet', current_time)
@@ -54,8 +54,8 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cfg_path="/home/jim/PycharmProjects/SegTorchProject/seg/models/hrnet/config/config.yaml"
     model = HRNet_FullModel(cfg_path)
-    # model_ckpt = "../checkpoint/unet/20210212_221154/models/state_dict_model_e_49.pt"
-    # model.load_state_dict(torch.load(model_ckpt))
+    model_ckpt = "../checkpoint/hrnet/20210214_094422/models/state_dict_model_e_0.pt"
+    model.load_state_dict(torch.load(model_ckpt))
     model.train()
     model.cuda()
     # ----------------------------------------------------------------------------------------------
